@@ -26,7 +26,52 @@ const settings = {
   backgroundMode: "default",
   backgroundColor: "#20243a",
   backgroundImage: null,
+  groundImage: null,
+  bubbleColor: "#e01818",
+  musicMode: "default",
+  autoMap: false,
 };
+
+const DEFAULT_SETTINGS = { ...settings, backgroundImageData: null };
+const STORAGE_KEY = "happyGuysV2Settings";
+
+function loadSettings() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
+    if (!saved || typeof saved !== "object") return;
+    Object.assign(settings, {
+      characterColor: saved.characterColor || DEFAULT_SETTINGS.characterColor,
+      groundColor: saved.groundColor || DEFAULT_SETTINGS.groundColor,
+      platformColor: saved.platformColor || DEFAULT_SETTINGS.platformColor,
+      backgroundMode: saved.backgroundMode || DEFAULT_SETTINGS.backgroundMode,
+      backgroundColor: saved.backgroundColor || DEFAULT_SETTINGS.backgroundColor,
+      backgroundImageData: saved.backgroundImageData || null,
+      groundImageData: saved.groundImageData || null,
+      bubbleColor: saved.bubbleColor || DEFAULT_SETTINGS.bubbleColor,
+      musicMode: saved.musicMode || DEFAULT_SETTINGS.musicMode,
+      autoMap: Boolean(saved.autoMap),
+    });
+  } catch {
+    localStorage.removeItem(STORAGE_KEY);
+  }
+}
+
+function saveSettings() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify({
+    characterColor: settings.characterColor,
+    groundColor: settings.groundColor,
+    platformColor: settings.platformColor,
+    backgroundMode: settings.backgroundMode,
+    backgroundColor: settings.backgroundColor,
+    backgroundImageData: settings.backgroundImageData || null,
+    groundImageData: settings.groundImageData || null,
+    bubbleColor: settings.bubbleColor,
+    musicMode: settings.musicMode,
+    autoMap: settings.autoMap,
+  }));
+}
+
+loadSettings();
 
 root.innerHTML = `
   <div class="game-shell">
@@ -39,8 +84,11 @@ root.innerHTML = `
         </section>
         <section>
           <h2>Zemin</h2>
-          <div class="swatches" id="groundSwatches"></div>
-          <input id="groundCustomColor" class="color-field" type="color" value="${settings.groundColor}" />
+          <label class="mode-button file-button">
+            Fotoğraf seç
+            <input id="groundFile" type="file" accept="image/*" />
+          </label>
+          <div class="selected-file" id="groundFileName">Varsayılan lav</div>
         </section>
         <section>
           <h2>Zıplama Blokları</h2>
@@ -59,14 +107,34 @@ root.innerHTML = `
           </div>
           <input id="backgroundColor" class="color-field" type="color" value="${settings.backgroundColor}" />
         </section>
+        <section>
+          <h2>Müzik</h2>
+          <select id="musicMode" class="music-select">
+            <option value="default">Varsayılan (2. şarkı)</option>
+            <option value="mix">Karışık (iki şarkı)</option>
+            <option value="track1">1. Man is He Mega - GLBML</option>
+            <option value="track2">2. Order - ComaStudio</option>
+          </select>
+        </section>
+        <section>
+          <h2>Baloncuk rengi</h2>
+          <input id="bubbleColor" class="color-field" type="color" value="${settings.bubbleColor}" />
+        </section>
+        <label class="toggle-row">
+          <input id="autoMap" type="checkbox" />
+          <span>Otomatik yeni harita oluştur</span>
+        </label>
+        <button id="resetSettings" class="reset-button" type="button">Varsayılana ayarla</button>
       </aside>
       <div class="start-stack">
         <h1>Happy Guys 2D</h1>
         <button id="startButton" class="start-button">OYUNA BAŞLA</button>
       </div>
+      <div class="version-label">Happy Guys v2.0.2</div>
     </div>
     <button id="mapButton" class="map-button game-map-button">✨ Yeni Harita Oluştur</button>
     <img id="mapAnimation" class="map-animation" src="./assets/yeni-harita-olustur-game.gif" alt="Yeni harita oluşturuluyor" />
+    <audio id="gameMusic" preload="auto" loop src="./man-is-he-mega-glbml-22045.mp3"></audio>
     <div class="move-controls">
       <button id="leftButton">←</button>
       <button id="rightButton">→</button>
@@ -79,10 +147,12 @@ const style = document.createElement("style");
 style.textContent = `
   .game-shell { position: relative; width: 100%; height: 100%; overflow: hidden; font-family: Arial, Helvetica, sans-serif; }
   #gameCanvas { display: block; width: 100%; height: 100%; touch-action: none; }
+  #gameMusic { display: none; }
   .menu-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.6); color: white; z-index: 3000; }
   .start-stack { display: flex; flex-direction: column; align-items: center; gap: 30px; }
   .start-stack h1 { margin: 0; font-size: 48px; text-shadow: 0 4px 10px rgba(0,0,0,.5); }
   .start-button { padding: 20px 50px; border: 0; border-radius: 15px; background: #4CAF50; color: white; box-shadow: 0 8px 20px rgba(0,0,0,.4); font-size: 24px; font-weight: 700; cursor: pointer; }
+  .version-label { position: absolute; left: 14px; bottom: 12px; color: rgba(255,255,255,.72); font-size: 13px; font-weight: 700; }
   .settings-panel { position: absolute; top: 14px; right: 14px; width: min(360px, calc(100vw - 28px)); display: grid; gap: 12px; padding: 14px; background: rgba(0,0,0,.34); border: 1px solid rgba(255,255,255,.18); border-radius: 14px; }
   .settings-panel h2 { margin: 0 0 8px; font-size: 14px; line-height: 1; }
   .swatches, .mode-row { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -93,6 +163,13 @@ style.textContent = `
   .file-button { display: inline-flex; align-items: center; }
   .file-button input { display: none; }
   .color-field { width: 54px; height: 34px; padding: 0; border: 0; border-radius: 8px; background: transparent; }
+  .music-select { width: 100%; height: 36px; border: 1px solid rgba(255,255,255,.25); border-radius: 9px; background: rgba(255,255,255,.14); color: white; padding: 0 9px; }
+  .music-select option { color: #20243a; }
+  .selected-file { color: rgba(255,255,255,.72); font-size: 12px; margin-top: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .toggle-row { display: flex; align-items: center; gap: 9px; color: white; font-size: 13px; font-weight: 700; cursor: pointer; }
+  .toggle-row input { width: 18px; height: 18px; accent-color: #4CAF50; }
+  .reset-button { height: 36px; border: 1px solid rgba(255,255,255,.25); border-radius: 9px; background: rgba(255,255,255,.12); color: white; font-weight: 700; cursor: pointer; }
+  .reset-button:hover { background: rgba(255,255,255,.2); }
   .game-map-button { position: absolute; top: 2px; right: 10px; z-index: 1000; display: none; border: 0; border-radius: 10px; padding: 12px 20px; background: #4CAF50; color: white; font-weight: 700; cursor: pointer; }
   .game-map-button:disabled { background: #777; cursor: not-allowed; opacity: .72; }
   .map-animation { position: absolute; top: 2px; right: 10px; z-index: 1000; display: none; width: 180px; height: 76px; object-fit: contain; }
@@ -112,9 +189,20 @@ const ctx = canvas.getContext("2d");
 const menuOverlay = document.getElementById("menuOverlay");
 const mapButton = document.getElementById("mapButton");
 const mapAnimation = document.getElementById("mapAnimation");
+const gameMusic = document.getElementById("gameMusic");
 const leftButton = document.getElementById("leftButton");
 const rightButton = document.getElementById("rightButton");
 const jumpButton = document.getElementById("jumpButton");
+const backgroundColorInput = document.getElementById("backgroundColor");
+const platformCustomColor = document.getElementById("platformCustomColor");
+const musicModeSelect = document.getElementById("musicMode");
+const bubbleColorInput = document.getElementById("bubbleColor");
+const groundFileName = document.getElementById("groundFileName");
+const autoMapInput = document.getElementById("autoMap");
+const lavaTile = new Image();
+lavaTile.src = "./assets/lava-tile.png";
+let lavaPattern = null;
+let groundPattern = null;
 
 const player = {
   x: 150,
@@ -138,6 +226,9 @@ let squash = 1;
 let mapLocked = false;
 let mapAnimating = false;
 let mapUnlockX = 0;
+let checkpoint = { x: 224, y: 0 };
+const lavaBubbles = [];
+let lavaBubbleTimer = 0.35;
 
 function setCanvasSize() {
   canvas.width = window.innerWidth;
@@ -151,22 +242,112 @@ function setCanvasSize() {
 
 function resetPlatforms() {
   const h = canvas.height;
+  lavaBubbles.length = 0;
+  lavaBubbleTimer = 0.35;
   platforms = [
     { x: 0, y: h - 40, width: Math.max(5000, canvas.width * 2), height: 40, color: settings.groundColor, isGround: true },
-    { x: 200, y: h - 200, width: 200, height: 20, color: settings.platformColor },
+    { x: 200, y: h - 200, width: 200, height: 20, color: settings.platformColor, checkpoint: true },
     { x: 500, y: h - 350, width: 150, height: 20, color: settings.platformColor },
     { x: 800, y: h - 500, width: 150, height: 20, color: settings.platformColor },
   ];
-  player.x = 150;
-  player.y = h - 300;
+  setCheckpoint(platforms[1]);
+  respawnAtCheckpoint();
+}
+
+function setCheckpoint(platform) {
+  checkpoint = {
+    x: platform.x + 24,
+    y: platform.y - player.height,
+  };
+}
+
+function respawnAtCheckpoint() {
+  player.x = checkpoint.x;
+  player.y = checkpoint.y;
   player.vx = 0;
   player.vy = 0;
+  player.grounded = true;
+  squash = 1;
+}
+
+function spawnLavaBubble() {
+  const ground = platforms[0];
+  if (!ground) return;
+  const cameraX = Math.max(0, player.x - canvas.width / 4);
+  const minX = Math.max(8, cameraX - 20);
+  const maxX = Math.min(ground.x + ground.width - 8, cameraX + canvas.width + 20);
+  const bubbleCount = 30;
+  for (let index = 0; index < bubbleCount; index += 1) {
+    const targetRise = 20 + Math.random() * 25;
+    const riseSpeed = 38 + Math.random() * 32;
+    lavaBubbles.push({
+      x: minX + Math.random() * Math.max(1, maxX - minX),
+      baseY: ground.y + 3,
+      radius: 3 + Math.random() * 3,
+      age: -(index * 0.065 + Math.random() * 0.08),
+      duration: targetRise / riseSpeed,
+      targetRise,
+      wobble: Math.random() * Math.PI * 2,
+    });
+  }
+}
+
+function updateLavaBubbles(dt) {
+  lavaBubbleTimer -= dt;
+  if (lavaBubbleTimer <= 0) {
+    spawnLavaBubble();
+    lavaBubbleTimer = 2.8 + Math.random() * 1.3;
+  }
+
+  for (let index = lavaBubbles.length - 1; index >= 0; index -= 1) {
+    const bubble = lavaBubbles[index];
+    bubble.age += dt;
+    if (bubble.age >= bubble.duration) lavaBubbles.splice(index, 1);
+  }
 }
 
 function syncPlatformColors() {
   for (const platform of platforms) {
     platform.color = platform.isGround ? settings.groundColor : settings.platformColor;
   }
+}
+
+function setBackgroundImageFromData(dataUrl) {
+  if (!dataUrl) {
+    settings.backgroundImage = null;
+    return;
+  }
+  const image = new Image();
+  image.onload = () => {
+    settings.backgroundImage = image;
+  };
+  image.src = dataUrl;
+}
+
+function setGroundImageFromData(dataUrl) {
+  settings.groundImage = null;
+  groundPattern = null;
+  if (!dataUrl) return;
+  const image = new Image();
+  image.onload = () => {
+    settings.groundImage = image;
+    groundPattern = null;
+  };
+  image.src = dataUrl;
+}
+
+function syncSettingsUi() {
+  makeSwatches("characterSwatches", COLORS.character, "characterColor");
+  makeSwatches("platformSwatches", COLORS.blocks, "platformColor");
+  platformCustomColor.value = settings.platformColor;
+  backgroundColorInput.value = settings.backgroundColor;
+  bubbleColorInput.value = settings.bubbleColor;
+  autoMapInput.checked = settings.autoMap;
+  groundFileName.textContent = settings.groundImageData ? "Özel zemin fotoğrafı" : "Varsayılan lav";
+  musicModeSelect.value = settings.musicMode;
+  document.querySelectorAll("[data-bg-mode]").forEach((item) => {
+    item.classList.toggle("active", item.dataset.bgMode === settings.backgroundMode);
+  });
 }
 
 function makeSwatches(id, palette, key) {
@@ -183,59 +364,132 @@ function makeSwatches(id, palette, key) {
       settings[key] = color;
       makeSwatches(id, palette, key);
       syncPlatformColors();
+      saveSettings();
     });
     holder.appendChild(button);
   }
 }
 
 makeSwatches("characterSwatches", COLORS.character, "characterColor");
-makeSwatches("groundSwatches", COLORS.blocks, "groundColor");
 makeSwatches("platformSwatches", COLORS.blocks, "platformColor");
+setBackgroundImageFromData(settings.backgroundImageData);
+setGroundImageFromData(settings.groundImageData);
+syncSettingsUi();
 
 document.querySelectorAll("[data-bg-mode]").forEach((button) => {
   button.addEventListener("click", () => {
     settings.backgroundMode = button.dataset.bgMode;
     document.querySelectorAll("[data-bg-mode]").forEach((item) => item.classList.toggle("active", item === button));
+    saveSettings();
   });
 });
 
-document.getElementById("backgroundColor").addEventListener("input", (event) => {
+backgroundColorInput.addEventListener("input", (event) => {
   settings.backgroundColor = event.target.value;
   settings.backgroundMode = "color";
   document.querySelectorAll("[data-bg-mode]").forEach((item) => item.classList.toggle("active", item.dataset.bgMode === "color"));
+  saveSettings();
 });
 
-document.getElementById("groundCustomColor").addEventListener("input", (event) => {
-  settings.groundColor = event.target.value;
-  makeSwatches("groundSwatches", COLORS.blocks, "groundColor");
-  syncPlatformColors();
-});
-
-document.getElementById("platformCustomColor").addEventListener("input", (event) => {
+platformCustomColor.addEventListener("input", (event) => {
   settings.platformColor = event.target.value;
   makeSwatches("platformSwatches", COLORS.blocks, "platformColor");
   syncPlatformColors();
+  saveSettings();
+});
+
+bubbleColorInput.addEventListener("input", (event) => {
+  settings.bubbleColor = event.target.value;
+  saveSettings();
+});
+
+autoMapInput.addEventListener("change", (event) => {
+  settings.autoMap = event.target.checked;
+  saveSettings();
+  if (!started) return;
+  mapButton.style.display = settings.autoMap ? "none" : "block";
+  if (settings.autoMap && !mapAnimating) createMapChunk();
+});
+
+document.getElementById("groundFile").addEventListener("change", (event) => {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    settings.groundImageData = reader.result;
+    setGroundImageFromData(settings.groundImageData);
+    groundFileName.textContent = file.name;
+    saveSettings();
+  };
+  reader.readAsDataURL(file);
+});
+
+musicModeSelect.addEventListener("change", (event) => {
+  settings.musicMode = event.target.value;
+  saveSettings();
+  if (started) playMusic();
 });
 
 document.getElementById("backgroundFile").addEventListener("change", (event) => {
   const file = event.target.files?.[0];
   if (!file) return;
-  const image = new Image();
-  image.onload = () => {
-    settings.backgroundImage = image;
+  const reader = new FileReader();
+  reader.onload = () => {
+    settings.backgroundImageData = reader.result;
     settings.backgroundMode = "photo";
+    setBackgroundImageFromData(settings.backgroundImageData);
     document.querySelectorAll("[data-bg-mode]").forEach((item) => item.classList.toggle("active", item.dataset.bgMode === "photo"));
+    saveSettings();
   };
-  image.src = URL.createObjectURL(file);
+  reader.readAsDataURL(file);
+});
+
+document.getElementById("resetSettings").addEventListener("click", () => {
+  Object.assign(settings, DEFAULT_SETTINGS);
+  settings.backgroundImageData = null;
+  settings.groundImageData = null;
+  localStorage.removeItem(STORAGE_KEY);
+  setBackgroundImageFromData(null);
+  setGroundImageFromData(null);
+  syncSettingsUi();
+  syncPlatformColors();
 });
 
 document.getElementById("startButton").addEventListener("click", () => {
   started = true;
+  playMusic();
   menuOverlay.style.display = "none";
-  mapButton.style.display = "block";
+  mapButton.style.display = settings.autoMap ? "none" : "block";
   document.querySelector(".move-controls").style.display = "flex";
   jumpButton.style.display = "block";
   syncPlatformColors();
+  if (settings.autoMap) createMapChunk();
+});
+
+const MUSIC_TRACKS = [
+  "./man-is-he-mega-glbml-22045.mp3",
+  "./order-99518%20(1).mp3",
+];
+let musicTrackIndex = 1;
+
+function playMusic() {
+  const mode = settings.musicMode;
+  if (mode === "track1") musicTrackIndex = 0;
+  else if (mode === "track2" || mode === "default") musicTrackIndex = 1;
+  else musicTrackIndex = Math.random() < 0.5 ? 0 : 1;
+
+  gameMusic.loop = mode !== "mix";
+  gameMusic.src = MUSIC_TRACKS[musicTrackIndex];
+  gameMusic.volume = 0.35;
+  gameMusic.currentTime = 0;
+  gameMusic.play().catch(() => {});
+}
+
+gameMusic.addEventListener("ended", () => {
+  if (settings.musicMode !== "mix") return;
+  musicTrackIndex = musicTrackIndex === 0 ? 1 : 0;
+  gameMusic.src = MUSIC_TRACKS[musicTrackIndex];
+  gameMusic.play().catch(() => {});
 });
 
 function rectsOverlap(a, b) {
@@ -245,6 +499,7 @@ function rectsOverlap(a, b) {
 function moveHorizontal() {
   player.x += player.vx;
   for (const platform of platforms) {
+    if (platform.isGround) continue;
     if (!rectsOverlap(player, platform)) continue;
     if (player.vx > 0) player.x = platform.x - player.width;
     if (player.vx < 0) player.x = platform.x + platform.width;
@@ -262,6 +517,7 @@ function moveVertical() {
       player.vy = 0;
       player.grounded = true;
       if (player.wasAirborne) squash = 0.6;
+      if (platform.checkpoint) setCheckpoint(platform);
     } else if (player.vy < 0) {
       player.y = platform.y + platform.height;
       player.vy = 0;
@@ -293,10 +549,10 @@ function updatePlayer() {
   squash += (1 - squash) * 0.09;
 
   if (player.x < 0) player.x = 0;
-  if (player.y > canvas.height + 500) {
-    player.x = 200;
-    player.y = canvas.height - 300;
-    player.vy = 0;
+  if (player.y + player.height >= canvas.height - 40 || player.y > canvas.height + 500) respawnAtCheckpoint();
+
+  if (settings.autoMap && !mapAnimating && mapUnlockX && player.x + canvas.width >= mapUnlockX - Math.max(300, canvas.width * 0.35)) {
+    createMapChunk();
   }
 
   if (mapLocked && mapUnlockX && player.x + player.width >= mapUnlockX - 40) {
@@ -304,6 +560,8 @@ function updatePlayer() {
     mapUnlockX = 0;
     updateMapButton();
   }
+
+  updateLavaBubbles(PHYSICS_STEP);
 }
 
 function drawBackground() {
@@ -363,6 +621,42 @@ function drawPlayer() {
   ctx.restore();
 }
 
+function drawLavaBubbles() {
+  for (const bubble of lavaBubbles) {
+    if (bubble.age < 0) continue;
+    const progress = Math.min(1, bubble.age / bubble.duration);
+    const rise = Math.min(bubble.targetRise, progress * bubble.targetRise);
+    const x = bubble.x + Math.sin(bubble.wobble + progress * 7) * 2;
+    const y = bubble.baseY - rise;
+    const popping = progress > 0.78;
+    const popProgress = popping ? (progress - 0.78) / 0.22 : 0;
+    const radius = bubble.radius * (1 + popProgress * 0.65);
+    const alpha = popping ? 1 - popProgress : 1;
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = settings.bubbleColor;
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = settings.bubbleColor;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(x, y, radius + 1, 0, Math.PI * 2);
+    ctx.stroke();
+
+    if (popping) {
+      ctx.globalAlpha = 1 - popProgress;
+      ctx.strokeStyle = settings.bubbleColor;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(x, y, radius + popProgress * 8, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
+
 function roundRect(context, x, y, width, height, radius) {
   context.beginPath();
   context.moveTo(x + radius, y);
@@ -376,6 +670,15 @@ function roundRect(context, x, y, width, height, radius) {
   context.quadraticCurveTo(x, y, x + radius, y);
 }
 
+function createGroundPhotoPattern(image, size) {
+  const tile = document.createElement("canvas");
+  tile.width = size;
+  tile.height = size;
+  const tileContext = tile.getContext("2d");
+  tileContext.drawImage(image, 0, 0, size, size);
+  return ctx.createPattern(tile, "repeat");
+}
+
 function draw() {
   drawBackground();
   if (!started) return;
@@ -384,11 +687,38 @@ function draw() {
   ctx.save();
   ctx.translate(-cameraX, 0);
   for (const platform of platforms) {
-    ctx.fillStyle = platform.color;
-    ctx.fillRect(platform.x, platform.y, platform.width, platform.height);
-    ctx.strokeStyle = "rgba(255,255,255,.3)";
-    ctx.strokeRect(platform.x, platform.y, platform.width, platform.height);
+    const groundImage = settings.groundImage?.complete ? settings.groundImage : lavaTile;
+    if (platform.isGround && groundImage.complete) {
+      if (settings.groundImage?.complete) groundPattern ||= createGroundPhotoPattern(groundImage, platform.height);
+      else lavaPattern ||= ctx.createPattern(groundImage, "repeat");
+      ctx.save();
+      ctx.translate(platform.x, platform.y);
+      ctx.fillStyle = settings.groundImage?.complete ? groundPattern : lavaPattern;
+      ctx.fillRect(0, 0, platform.width, platform.height);
+      ctx.restore();
+      ctx.fillStyle = "rgba(255, 120, 0, .35)";
+      ctx.fillRect(platform.x, platform.y, platform.width, 4);
+    } else {
+      ctx.fillStyle = platform.color;
+      ctx.fillRect(platform.x, platform.y, platform.width, platform.height);
+      ctx.strokeStyle = "rgba(255,255,255,.3)";
+      ctx.strokeRect(platform.x, platform.y, platform.width, platform.height);
+    }
+    if (platform.checkpoint) {
+      const flagX = platform.x + platform.width / 2;
+      ctx.fillStyle = "#ffd54f";
+      ctx.fillRect(flagX - 2, platform.y - 34, 4, 34);
+      ctx.beginPath();
+      ctx.moveTo(flagX + 2, platform.y - 34);
+      ctx.lineTo(flagX + 30, platform.y - 25);
+      ctx.lineTo(flagX + 2, platform.y - 16);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "rgba(255,213,79,.22)";
+      ctx.fillRect(platform.x, platform.y - 4, platform.width, 4);
+    }
   }
+  drawLavaBubbles();
   drawPlayer();
   ctx.restore();
 }
@@ -415,7 +745,7 @@ function updateMapButton() {
 }
 
 function createMapChunk() {
-  if (mapLocked || mapAnimating) return;
+  if ((mapLocked && !settings.autoMap) || mapAnimating) return;
   mapAnimating = true;
   mapLocked = true;
   updateMapButton();
@@ -426,7 +756,7 @@ function createMapChunk() {
   setTimeout(() => {
     mapAnimating = false;
     mapAnimation.style.display = "none";
-    mapButton.style.display = "block";
+    mapButton.style.display = settings.autoMap ? "none" : "block";
     updateMapButton();
   }, 2800);
 
@@ -446,6 +776,7 @@ function createMapChunk() {
       width: Math.round(100 + Math.random() * 80),
       height: 20,
       color: settings.platformColor,
+      checkpoint: index === 4 || index === 9 || index === 14,
     });
   }
 
